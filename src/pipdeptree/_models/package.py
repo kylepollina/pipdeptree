@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import importlib.util
+import os
 from abc import ABC, abstractmethod
 from importlib import import_module
 from importlib.metadata import Distribution, PackageNotFoundError, metadata, version
 from inspect import ismodule
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Iterator, Optional
 
+import pkg_resources
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
@@ -13,6 +16,50 @@ if TYPE_CHECKING:
     from importlib.metadata import Distribution
 
 from pipdeptree._adapter import PipBaseDistributionAdapter
+
+
+def get_directory_size(directory) -> int:
+    """
+    Returns the total size of a directory in bytes.
+
+    Args:
+        directory (str): The path to the directory.
+
+    Returns:
+        int: The total size of the directory in bytes.
+    """
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(directory):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            total_size += os.path.getsize(fp)
+    return total_size
+
+
+def get_package_location(package_name) -> Optional[str]:
+    """
+    Retrieves the location of a package.
+
+    Args:
+        package_name (str): The name of the package.
+
+    Returns:
+        str: The location of the package, or None if it could not be found.
+    """
+    try:
+        # Try to get the package location using pkg_resources
+        package = pkg_resources.get_distribution(package_name)
+        return package.location
+    except pkg_resources.DistributionNotFound:
+        pass
+
+    # Try to get the package location using importlib
+    spec = importlib.util.find_spec(package_name)
+    if spec is not None:
+        return spec.origin
+
+    # If all else fails, return None
+    return None
 
 
 class InvalidRequirementError(ValueError):
@@ -31,6 +78,8 @@ class Package(ABC):
     def __init__(self, project_name: str) -> None:
         self.project_name = project_name
         self.key = canonicalize_name(project_name)
+        self.location = get_package_location(self.key)
+        self.size = get_directory_size(f"{self.location}/{self.key}")
 
     def licenses(self) -> str:
         try:
